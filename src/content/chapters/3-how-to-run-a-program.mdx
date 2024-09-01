@@ -8,28 +8,28 @@ updatedAt: 2023-07-24T15:57:08.044Z
 
 import CodeBlock from '../../components/CodeBlock.astro'
 
-So far, we've covered how CPUs execute machine code loaded from executables, what ring-based security is, and how syscalls work. In this section, we'll dive deep into the Linux kernel to figure out how programs are loaded and run in the first place.
+到目前为止，我们已经讨论了CPU如何执行从可执行文件加载的机器码，什么是基于环的安全性，以及系统调用如何工作。在本节中，我们将深入Linux内核，了解程序最初是如何被加载和运行的。
 
-We're specifically going to look at Linux on x86-64. Why?
+我们将特别关注x86-64架构上的Linux。为什么？
 
-- Linux is a fully featured production OS for desktop, mobile, and server use cases. Linux is open source, so it's super easy to research just by reading its source code. I will be directly referencing some kernel code in this article!
-- x86-64 is the architecture that most modern desktop computers use, and the target architecture of a lot of code. The subset of behavior I mention that is x86-64-specific will generalize well.
+- Linux是一个功能齐全的生产级操作系统，适用于桌面、移动和服务器用例。Linux是开源的，所以通过阅读其源代码很容易进行研究。我将在本文中直接引用一些内核代码！
+- x86-64是大多数现代桌面计算机使用的架构，也是许多代码的目标架构。我提到的特定于x86-64的行为子集将具有很好的通用性。
 
-Most of what we learn will generalize well to other operating systems and architectures, even if they differ in various specific ways.
+我们学到的大部分内容将很好地适用于其他操作系统和架构，即使它们在各种具体方面有所不同。
 
-## Basic Behavior of Exec Syscalls
+## Exec系统调用的基本行为
 
 <img src='/images/linux-program-execution-process.png' loading='eager' style='max-width: 600px; margin: 0 auto;' alt='A flowchart demonstrating exec syscalls. On the left, a group of flowchart items labeled "user space," on the right, a group labeled "kernel space." Starting in the user space group: the user runs ./file.bin in their terminal, which then runs the syscall execve("./file.bin", ...). This flows to the SYSCALL instruction being executed, which then points to the first item in the kernel space group: "Load and set up a binary" which points to "Try a binfmt." If the binfmt is supported, it starts the new process (replacing the current). If not, it tries the binfmt again.' width='917' height='424' />
 
-Let's start with a very important system call: `execve`. It loads a program and, if successful, replaces the current process with that program. A couple other syscalls (`execlp`, `execvpe`, etc.) exist, but they all layer on top of `execve` in various fashions.
+让我们从一个非常重要的系统调用开始：`execve`。它加载一个程序，如果成功，就用该程序替换当前进程。还有几个其他的系统调用（`execlp`、`execvpe`等）存在，但它们都以各种方式基于`execve`。
 
-> **Aside: `execveat`**
+> **题外话：`execveat`**
 > 
-> `execve` is *actually* built on top of `execveat`, a more general syscall that runs a program with some configuration options. For simplicity, we'll mostly talk about `execve`; the only difference is that it provides some defaults to `execveat`.
+> `execve`实际上是基于`execveat`构建的，`execveat`是一个更通用的系统调用，可以运行带有一些配置选项的程序。为了简单起见，我们主要讨论`execve`；唯一的区别是它为`execveat`提供了一些默认值。
 >
-> Curious what `ve` stands for? The `v` means one parameter is the vector (list) of arguments (`argv`), and the `e` means another parameter is the vector of environment variables (`envp`). Various other exec syscalls have different suffixes to designate different call signatures. The `at` in `execveat` is just "at", because it specifies the location to run `execve` at.
+> 好奇`ve`代表什么？`v`意味着一个参数是参数的向量（列表）（`argv`），`e`意味着另一个参数是环境变量的向量（`envp`）。各种其他exec系统调用有不同的后缀来指定不同的调用签名。`execveat`中的`at`就是"at"，因为它指定了运行`execve`的位置。
 
-The call signature of `execve` is:
+`execve`的调用签名是：
 
 <CodeBlock>
 ```c
@@ -37,17 +37,17 @@ int execve(const char *filename, char *const argv[], char *const envp[]);
 ```
 </CodeBlock>
 
-- The `filename` argument specifies a path to the program to run.
-- `argv` is a null-terminated (meaning the last item is a null pointer) list of arguments to the program. The `argc` argument you'll commonly see passed to C main functions is actually calculated later by the syscall, thus the null-termination.
-- The `envp` argument contains another null-terminated list of environment variables used as context for the application. They're... conventionally `KEY=VALUE` pairs. *Conventionally.* I love computers.
+- `filename`参数指定要运行的程序的路径。
+- `argv`是一个以null结尾（意味着最后一项是空指针）的程序参数列表。你经常会看到传递给C语言main函数的`argc`参数实际上是后来由系统调用计算的，因此需要null终止。
+- `envp`参数包含另一个以null结尾的环境变量列表，用作应用程序的上下文。它们...按惯例是`KEY=VALUE`对。*按惯例*。我爱计算机。
 
-Fun fact! You know that convention where a program's first argument is the name of the program? That's *purely a convention*, and isn't actually set by the `execve` syscall itself! The first argument will be whatever is passed to `execve` as the first item in the `argv` argument, even if it has nothing to do with the program name.
+有趣的事实！你知道程序的第一个参数是程序名称的那个惯例吗？那*纯粹是一个惯例*，实际上并不是由`execve`系统调用本身设置的！第一个参数将是传递给`execve`的`argv`参数中的第一项，即使它与程序名称无关。
 
-Interestingly, `execve` does have some code that assumes `argv[0]` is the program name. More on this later when we talk about interpreted scripting languages.
+有趣的是，`execve`确实有一些代码假设`argv[0]`是程序名称。稍后当我们讨论解释型脚本语言时会详细讨论这一点。
 
-### Step 0: Definition
+### 步骤0：定义
 
-We already know how syscalls work, but we've never seen a real-world code example! Let's look at the Linux kernel's source code to see how `execve` is defined under the hood:
+我们已经知道系统调用是如何工作的，但我们从未见过真实世界的代码示例！让我们看看Linux内核的源代码，看看`execve`在底层是如何定义的：
 
 <CodeBlock name='fs/exec.c' startLine={2105} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/fs/exec.c#L2105-L2111'>
 ```c
@@ -61,11 +61,11 @@ SYSCALL_DEFINE3(execve,
 ```
 </CodeBlock>
 
-`SYSCALL_DEFINE3` is a macro for defining a 3-argument system call's code.
+`SYSCALL_DEFINE3`是定义3参数系统调用代码的宏。
 
-> I was curious why the [arity](https://en.wikipedia.org/wiki/Arity) is hardcoded in the macro name; I googled around and learned that this was a workaround to fix [some security vulnerability](https://nvd.nist.gov/vuln/detail/CVE-2009-0029).
+> 我很好奇为什么[arity](https://en.wikipedia.org/wiki/Arity)（参数数量）在宏名中是硬编码的；我在网上搜索后了解到，这是为了修复[某个安全漏洞](https://nvd.nist.gov/vuln/detail/CVE-2009-0029)的解决方案。
 
-The filename argument is passed to a `getname()` function, which copies the string from user space to kernel space and does some usage tracking things. It returns a `filename` struct, which is defined in `include/linux/fs.h`. It stores a pointer to the original string in user space as well as a new pointer to the value copied to kernel space:
+文件名参数被传递给`getname()`函数，该函数将字符串从用户空间复制到内核空间，并做一些使用跟踪的事情。它返回一个`filename`结构体，定义在`include/linux/fs.h`中。它存储了指向用户空间原始字符串的指针，以及指向复制到内核空间的值的新指针：
 
 <CodeBlock name='include/linux/fs.h' startLine={2294} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/fs.h#L2294-L2300'>
 ```c
@@ -79,9 +79,9 @@ struct filename {
 ```
 </CodeBlock>
 
-The `execve` system call then calls a `do_execve()` function. This, in turn, calls `do_execveat_common()`with some defaults. The `execveat` syscall which I mentioned earlier also calls `do_execveat_common()`, but passes through more user-provided options.
+然后`execve`系统调用调用`do_execve()`函数。这又调用`do_execveat_common()`并传入一些默认值。我之前提到的`execveat`系统调用也调用`do_execveat_common()`，但传递更多用户提供的选项。
 
-In the below snippet, I've included the definitions of both `do_execve` and `do_execveat`:
+在下面的代码片段中，我包含了`do_execve`和`do_execveat`的定义：
 
 <CodeBlock name='fs/exec.c' startLine={2028} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/fs/exec.c#L2028-L2046'>
 ```c
@@ -107,26 +107,26 @@ static int do_execveat(int fd, struct filename *filename,
 ```
 </CodeBlock>
 
-\[spacing sic\]
+\[格式如原文\]
 
-In `execveat`, a file descriptor (a type of id that points to *some resource*) is passed to the syscall and then to `do_execveat_common`. This specifies the directory to execute the program relative to.
+在`execveat`中，文件描述符（指向*某种资源*的ID类型）被传递给系统调用，然后传递给`do_execveat_common`。这指定了相对于哪个目录执行程序。
 
-In `execve`, a special value is used for the file descriptor argument, `AT_FDCWD`. This is a shared constant in the Linux kernel that tells functions to interpret pathnames as relative to the current working directory. Functions that accept file descriptors usually include a manual check like <code>if&nbsp;(fd&nbsp;==&nbsp;AT_FDCWD) \{&nbsp;/\*&nbsp;special codepath&nbsp;\*/&nbsp;\}</code>.
+在`execve`中，使用了一个特殊值`AT_FDCWD`作为文件描述符参数。这是Linux内核中的一个共享常量，告诉函数将路径名解释为相对于当前工作目录。接受文件描述符的函数通常包括一个手动检查，如<code>if&nbsp;(fd&nbsp;==&nbsp;AT_FDCWD) \{&nbsp;/\*&nbsp;特殊代码路径&nbsp;\*/&nbsp;\}</code>。
 
-### Step 1: Setup
+### 步骤1：设置
 
-We've now reached `do_execveat_common`, the core function handling program execution. We're going to take a brief step back from staring at code to get a bigger picture view of what this function does.
+我们现在到达了`do_execveat_common`，这是处理程序执行的核心函数。我们要暂时从盯着代码的状态退一步，获得这个函数做什么的更大图景。
 
-The first major job of `do_execveat_common` is setting up a struct called `linux_binprm`. I won't include a copy of [the whole struct definition](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/binfmts.h#L15-L65), but there are several important fields to go over:
+`do_execveat_common`的第一个主要工作是设置一个叫做`linux_binprm`的结构体。我不会包含[整个结构体定义](https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/binfmts.h#L15-L65)的副本，但有几个重要的字段需要讨论：
 
-- Data structures like `mm_struct` and `vm_area_struct` are defined to prepare virtual memory management for the new program.
-- `argc` and `envc` are calculated and stored to be passed to the program.
-- `filename` and `interp` store the filename of the program and its interpreter, respectively. These start out equal to each other, but can change in some cases: one such case is when running interpreted scripts with a [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix)). When executing a Python program, for example, `filename` points to the source file but `interp` is the path to the Python interpreter.
-- `buf` is an array filled with the first 256 bytes of the file to be executed. It's used to detect the format of the file and load script shebangs.
+- 定义了像`mm_struct`和`vm_area_struct`这样的数据结构，为新程序准备虚拟内存管理。
+- 计算并存储`argc`和`envc`以传递给程序。
+- `filename`和`interp`分别存储程序的文件名和其解释器。这些开始时是相等的，但在某些情况下可能会改变：一种情况是运行带有[shebang](https://en.wikipedia.org/wiki/Shebang_(Unix))的解释型脚本。例如，当执行Python程序时，`filename`指向源文件，但`interp`是Python解释器的路径。
+- `buf`是一个数组，填充了要执行的文件的前256个字节。它用于检测文件的格式并加载脚本shebang。
 
-(TIL: binprm stands for **bin**ary **pr**og**r**a**m**.)
+（今天我学到：binprm代表**bin**ary **pr**og**r**a**m**。）
 
-Let's take a closer look at this buffer `buf`:
+让我们仔细看看这个`buf`缓冲区：
 
 <CodeBlock name='linux_binprm @ include/linux/binfmts.h' startLine={64} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/linux/binfmts.h#L64'>
 ```c
@@ -134,7 +134,7 @@ Let's take a closer look at this buffer `buf`:
 ```
 </CodeBlock>
 
-As we can see, its length is defined as the constant `BINPRM_BUF_SIZE`. By searching the codebase for this string, we can find a definition for this in `include/uapi/linux/binfmts.h`:
+正如我们所见，它的长度定义为常量`BINPRM_BUF_SIZE`。通过在代码库中搜索这个字符串，我们可以在`include/uapi/linux/binfmts.h`中找到它的定义：
 
 <CodeBlock name='include/uapi/linux/binfmts.h' startLine={18} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/include/uapi/linux/binfmts.h#L18-L19'>
 ```c
@@ -143,31 +143,31 @@ As we can see, its length is defined as the constant `BINPRM_BUF_SIZE`. By searc
 ```
 </CodeBlock>
 
-So, the kernel loads the opening 256 bytes of the executed file into this memory buffer.
+所以，内核将执行文件的前256个字节加载到这个内存缓冲区中。
 
-> **Aside: what's a UAPI?**
+> **题外话：什么是UAPI？**
 > 
-> You might notice that the above code's path contains `/uapi/`. Why isn't the length defined in the same file as the `linux_binprm` struct, `include/linux/binfmts.h`?
+> 你可能注意到上面代码的路径包含`/uapi/`。为什么长度不在与`linux_binprm`结构体相同的文件`include/linux/binfmts.h`中定义？
 >
-> UAPI stands for "userspace API." In this case, it means someone decided that the length of the buffer should be part of the kernel's public API. In theory, everything UAPI is exposed to userland, and everything non-UAPI is private to kernel code.
+> UAPI代表"用户空间API"。在这种情况下，它意味着有人决定缓冲区的长度应该是内核公共API的一部分。理论上，所有UAPI都对用户空间暴露，而所有非UAPI都是内核代码的私有部分。
 >
-> Kernel and user space code originally coexisted in one jumbled mass. In 2012, UAPI code was [refactored into a separate directory](https://lwn.net/Articles/507794/) as an attempt to improve maintainability.
+> 内核和用户空间代码最初共存于一个混杂的整体中。2012年，UAPI代码被[重构到一个单独的目录](https://lwn.net/Articles/507794/)，试图提高可维护性。
 
-### Step 2: Binfmts
+### 步骤2：Binfmts
 
-The kernel's next major job is iterating through a bunch of "binfmt" (binary format) handlers. These handlers are defined in files like `fs/binfmt_elf.c` and `fs/binfmt_flat.c`. [Kernel modules](https://wiki.archlinux.org/title/Kernel_module) can also add their own binfmt handlers to the pool.
+内核的下一个主要工作是遍历一堆"binfmt"（二进制格式）处理程序。这些处理程序定义在诸如`fs/binfmt_elf.c`和`fs/binfmt_flat.c`这样的文件中。[内核模块](https://wiki.archlinux.org/title/Kernel_module)也可以向池中添加自己的binfmt处理程序。
 
-Each handler exposes a `load_binary()` function which takes a `linux_binprm` struct and checks if the handler understands the program's format.
+每个处理程序都暴露一个`load_binary()`函数，该函数接受一个`linux_binprm`结构体，并检查处理程序是否理解程序的格式。
 
-This often involves looking for [magic numbers](https://en.wikipedia.org/wiki/Magic_number_(programming)) in the buffer, attempting to decode the start of the program (also from the buffer), and/or checking the file extension. If the handler does support the format, it prepares the program for execution and returns a success code. Otherwise, it quits early and returns an error code.
+这通常涉及在缓冲区中查找[魔数](https://en.wikipedia.org/wiki/Magic_number_(programming))，尝试解码程序的开头（也来自缓冲区），和/或检查文件扩展名。如果处理程序支持该格式，它会准备程序执行并返回成功代码。否则，它会提前退出并返回错误代码。
 
-The kernel tries the `load_binary()` function of each binfmt until it reaches one that succeeds. Sometimes these will run recursively; for example, if a script has an interpreter specified and that interpreter is, itself, a script, the hierarchy might be `binfmt_script` > `binfmt_script` > `binfmt_elf` (where ELF is the executable format at the end of the chain).
+内核尝试每个binfmt的`load_binary()`函数，直到找到一个成功的。有时这些会递归运行；例如，如果一个脚本指定了一个解释器，而该解释器本身又是一个脚本，那么层次结构可能是`binfmt_script` > `binfmt_script` > `binfmt_elf`（其中ELF是链的末端的可执行格式）。
 
-### Format Highlight: Scripts
+### 格式亮点：脚本
 
-Of the many formats Linux supports, `binfmt_script` is the first I want to specifically talk about.
+在Linux支持的许多格式中，`binfmt_script`是我想特别谈论的第一个。
 
-Have you ever read or written a [shebang](https://en.wikipedia.org/wiki/Shebang_(Unix))? That line at the start of some scripts that specifies the path to the interpreter?
+你有没有读过或写过[shebang](https://en.wikipedia.org/)？那个在一些脚本开头指定解释器路径的行？
 
 <CodeBlock startLine={1}>
 ```bash
@@ -175,9 +175,9 @@ Have you ever read or written a [shebang](https://en.wikipedia.org/wiki/Shebang_
 ```
 </CodeBlock>
 
-I always just assumed these were handled by the shell, but no! Shebangs are actually a feature of the kernel, and scripts are executed with the same syscalls as every other program. Computers are *so cool*.
+我一直以为这些是由shell处理的，但并非如此！Shebangs实际上是内核的一个功能，脚本和其他所有程序一样使用相同的系统调用执行。计算机*太酷了*。
 
-Take a look at how `fs/binfmt_script.c` checks if a file starts with a shebang:
+看看`fs/binfmt_script.c`是如何检查一个文件是否以shebang开头的：
 
 <CodeBlock name='load_script @ fs/binfmt_script.c' startLine={40} sourceUrl='https://github.com/torvalds/linux/blob/22b8cc3e78f5448b4c5df00303817a9137cd663f/fs/binfmt_script.c#L40-L42'>
 ```c
@@ -187,45 +187,45 @@ Take a look at how `fs/binfmt_script.c` checks if a file starts with a shebang:
 ```
 </CodeBlock>
 
-If the file does start with a shebang, the binfmt handler then reads the interpreter path and any space-separated arguments after the path. It stops when it hits either a newline or the end of the buffer.
+如果文件确实以shebang开头，binfmt处理程序然后读取解释器路径和路径后的任何空格分隔的参数。它会在遇到换行符或缓冲区结束时停止。
 
-There are two interesting, wonky things going on here.
+这里有两件有趣的、古怪的事情正在发生。
 
-**First of all**, remember that buffer in `linux_binprm` that was filled with the first 256 bytes of the file? That's used for executable format detection, but that same buffer is also what shebangs are read out of in `binfmt_script`.
+**首先**，还记得`linux_binprm`中那个填充了文件前256个字节的缓冲区吗？它用于可执行格式检测，但同样的缓冲区也在`binfmt_script`中用于读取shebangs。
 
-During my research, I read an article that described the buffer as 128 bytes long. At some point after that article was published, the length was doubled to 256 bytes! Curious why, I checked the Git blame — a log of everybody who edited a certain line of code — for the line where `BINPRM_BUF_SIZE` is defined in the Linux source code. Lo and behold...
+在我的研究过程中，我读到一篇文章描述这个缓冲区长度为128字节。在那篇文章发布后的某个时候，长度被翻倍到256字节！好奇为什么会这样，我查看了Git blame —— 一个记录谁编辑了某行代码的日志 —— 查看Linux源代码中`BINPRM_BUF_SIZE`定义的那一行。果不其然...
 
 <img src='/images/binprm-buf-changelog.png' loading='lazy' style='max-width: 550px;' alt='A screenshot of a Git blame window from the Visual Studio Code editor. The git blame shows the line "#define BINPRM_BUF_SIZE 128" being changed to 256. The commit is by Oleg Nesterov, and the main text is "exec: increase BINPRM_BUF_SIZE to 256. Large enterprise clients often run applications out of networked file systems where the IT mandated layout of project volumes can end up leading to paths that are longer than 128 characters.  Bumping this up to the next order of two solves this problem in all but the most egregious case while still fitting into a 512b slab." The commit is signed off by Linus Torvalds, among others.' width='942' height='968' />
 
-COMPUTERS ARE SO COOL!
+计算机太酷了！
 
-Since shebangs are handled by the kernel, and pull from `buf` instead of loading the whole file, they're *always* truncated to the length of `buf`. Apparently, 4 years ago, someone got annoyed by the kernel truncating their >128-character paths, and their solution was to double the truncation point by doubling the buffer size! Today, on your very own Linux machine, if you have a shebang line more than 256 characters long, everything past 256 characters will be *completely lost*.
+由于shebangs是由内核处理的，并且从`buf`而不是加载整个文件中获取，它们*总是*被截断到`buf`的长度。显然，4年前，有人对内核截断他们超过128个字符的路径感到恼火，他们的解决方案是通过将缓冲区大小翻倍来将截断点翻倍！今天，在你自己的Linux机器上，如果你有一个超过256个字符长的shebang行，超过256个字符的所有内容将*完全丢失*。
 
 <img src='/images/linux-shebang-truncation.png' loading='lazy' style='max-width: 500px;' alt='A diagram depicting shebang truncation. A large array of bytes from a file named file.bin. The first 256 bytes are highlighted and labeled "Loaded into buf," while the remaining bytes are translucent and labeled "Ignored, past 256 bytes."' width='730' height='548' />
 
-Imagine having a bug because of this. Imagine trying to figure out the root cause of what's breaking your code. Imagine how it would feel, discovering that the problem is deep within the Linux kernel. Woe to the next IT person at a massive enterprise who discovers that part of a path has mysteriously gone missing.
+想象一下因为这个而出现bug。想象一下试图找出破坏你代码的根本原因。想象一下，当你发现问题深藏在Linux内核中时的感受。可怜那些在大型企业中发现路径的一部分神秘消失的下一个IT人员。
 
-**The second wonky thing:** remember how it's only *convention* for `argv[0]` to be the program name, how the caller can pass any `argv` they want to an exec syscall and it will pass through unmoderated?
+**第二件古怪的事：**还记得`argv[0]`是程序名称只是一个惯例吗，调用者可以传递任何他们想要的`argv`给exec系统调用，它会不加修改地通过？
 
-It just so happens that `binfmt_script` is one of those places that *assumes* `argv[0]` is the program name. It always removes `argv[0]`, and then adds the following to the start of `argv`:
+恰好`binfmt_script`是那些*假设*`argv[0]`是程序名称的地方之一。它总是移除`argv[0]`，然后在`argv`的开头添加以下内容：
 
-- Path to the interpreter
-- Arguments to the interpreter
-- Filename of the script
+- 解释器的路径
+- 解释器的参数
+- 脚本的文件名
 
 <blockquote>
-**Example: Argument Modification**
+**示例：参数修改**
 
-Let's look at a sample `execve` call:
+让我们看一个`execve`调用的示例：
 
 <CodeBlock>
 ```c
-// Arguments: filename, argv, envp
+// 参数：filename, argv, envp
 execve("./script", [ "A", "B", "C" ], []);
 ```
 </CodeBlock>
 
-This hypothetical `script` file has the following shebang as its first line:
+这个假设的`script`文件的第一行有以下shebang：
 
 <CodeBlock name='script' startLine={1}>
 ```js
@@ -233,7 +233,7 @@ This hypothetical `script` file has the following shebang as its first line:
 ```
 </CodeBlock>
 
-The modified `argv` finally passed to the Node interpreter will be:
+最终传递给Node解释器的修改后的`argv`将是：
 
 <CodeBlock>
 ```c
@@ -242,28 +242,28 @@ The modified `argv` finally passed to the Node interpreter will be:
 </CodeBlock>
 </blockquote>
 
-After updating `argv`, the handler finishes preparing the file for execution by setting `linux_binprm.interp` to the interpreter path (in this case, the Node binary). Finally, it returns 0 to indicate success preparing the program for execution.
+更新`argv`后，处理程序通过将`linux_binprm.interp`设置为解释器路径（在本例中是Node二进制文件）来完成准备文件执行的工作。最后，它返回0表示成功准备程序执行。
 
-### Format Highlight: Miscellaneous Interpreters
+### 格式亮点：杂项解释器
 
-Another interesting handler is `binfmt_misc`. It opens up the ability to add some limited formats through userland configuration, by mounting a special file system at `/proc/sys/fs/binfmt_misc/`. Programs can perform [specially formatted](https://docs.kernel.org/admin-guide/binfmt-misc.html) writes to files in this directory to add their own handlers. Each configuration entry specifies:
+另一个有趣的处理程序是`binfmt_misc`。它开放了通过用户空间配置添加一些有限格式的能力，方法是在`/proc/sys/fs/binfmt_misc/`挂载一个特殊的文件系统。程序可以对这个目录中的文件执行[特殊格式的](https://docs.kernel.org/admin-guide/binfmt-misc.html)写入来添加自己的处理程序。每个配置条目指定：
 
-- How to detect their file format. This can specify either a magic number at a certain offset or a file extension to look for.
-- The path to an interpreter executable. There's no way to specify interpreter arguments, so a wrapper script is needed if those are desired.
-- Some configuration flags, including one specifying how `binfmt_misc` updates `argv`.
+- 如何检测他们的文件格式。这可以指定在某个偏移处的魔数，或要查找的文件扩展名。
+- 解释器可执行文件的路径。没有办法指定解释器参数，所以如果需要这些，就需要一个包装脚本。
+- 一些配置标志，包括一个指定`binfmt_misc`如何更新`argv`的标志。
 
-This `binfmt_misc` system is often used by Java installations, configured to detect class files by their `0xCAFEBABE` magic bytes and JAR files by their extension. On my particular system, a  handler is configured that detects Python bytecode by its .pyc extension and passes it to the appropriate handler.
+这个`binfmt_misc`系统经常被Java安装使用，配置为通过它们的`0xCAFEBABE`魔数检测类文件，通过它们的扩展名检测JAR文件。在我的特定系统上，配置了一个处理程序，通过.pyc扩展名检测Python字节码并将其传递给适当的处理程序。
 
-This is a pretty cool way to let program installers add support for their own formats without needing to write highly privileged kernel code.
+这是一种让程序安装程序添加对自己格式的支持的很酷的方式，而不需要编写高度特权的内核代码。
 
-## In the End (Not the Linkin Park Song)
+## 最后（不是林肯公园的歌）
 
-An exec syscall will always end up in one of two paths:
+一个exec系统调用总会最终走向两条路径之一：
 
-- It will eventually reach an executable binary format that it understands, perhaps after several layers of script interpreters, and run that code. At this point, the old code has been replaced.
-- ... or it will exhaust all its options and return an error code to the calling program, tail between its legs.
+- 它最终会达到一个它理解的可执行二进制格式，可能在经过几层脚本解释器之后，并运行那个代码。在这一点上，旧代码已被替换。
+- ... 或者它会用尽所有选项，夹着尾巴返回错误代码给调用程序。
 
-If you've ever used a Unix-like system, you might've noticed that shell scripts run from a terminal still execute if they don't have a shebang line or `.sh` extension. You can test this out right now if you have a non-Windows terminal handy:
+如果你曾经使用过类Unix系统，你可能注意到从终端运行的shell脚本即使没有shebang行或`.sh`扩展名也能执行。如果你有一个非Windows终端，你现在就可以测试这个：
 
 <CodeBlock name='Shell session'>
 ```
@@ -274,18 +274,18 @@ hello
 ```
 </CodeBlock>
 
-(`chmod +x` tells the OS that a file is an executable. You won't be able to run it otherwise.)
+（`chmod +x`告诉OS一个文件是可执行的。否则你将无法运行它。）
 
-So, why does the shell script run as a shell script? The kernel's format handlers should have no clear way of detecting shell scripts without any discernible label!
+那么，为什么shell脚本会作为shell脚本运行呢？内核的格式处理程序应该没有明确的方法来检测没有任何可辨识标签的shell脚本！
 
-Well, it turns out that this behavior isn't part of the kernel. It's actually a common way for your *shell* to handle a failure case.
+嗯，事实证明这个行为不是内核的一部分。它实际上是你的*shell*处理失败情况的一种常见方式。
 
-When you execute a file using a shell and the exec syscall fails, most shells will *retry executing the file as a shell script* by executing a shell with the filename as the first argument. Bash will typically use itself as this interpreter, while ZSH uses whatever `sh` is, usually [Bourne shell](https://en.wikipedia.org/wiki/Bourne_shell).
+当你使用shell执行一个文件，而exec系统调用失败时，大多数shell会*尝试将文件作为shell脚本重新执行*，方法是执行一个shell，将文件名作为第一个参数。Bash通常会使用自己作为这个解释器，而ZSH使用whatever `sh`是，通常是[Bourne shell](https://en.wikipedia.org/wiki/Bourne_shell)。
 
-This behavior is so common because it's specified in [*POSIX*](https://en.wikipedia.org/wiki/POSIX), an old standard designed to make code portable between Unix systems. While POSIX isn't strictly followed by most tools or operating systems, many of its conventions are still shared.
+这种行为如此普遍，是因为它在[*POSIX*](https://en.wikipedia.org/wiki/POSIX)中被指定，POSIX是一个旧标准，旨在使代码在Unix系统之间可移植。虽然大多数工具或操作系统并不严格遵循POSIX，但它的许多约定仍然被共享。
 
-> If \[an exec syscall\] fails due to an error equivalent to the `[ENOEXEC]` error, **the shell shall execute a command equivalent to having a shell invoked with the command name as its first operand**, with any remaining arguments passed to the new shell. If the executable file is not a text file, the shell may bypass this command execution. In this case, it shall write an error message and shall return an exit status of 126.
+> 如果\[一个exec系统调用\]由于等同于`[ENOEXEC]`错误的错误而失败，**shell应执行等同于以命令名作为其第一个操作数调用shell的命令**，将任何剩余参数传递给新shell。如果可执行文件不是文本文件，shell可能会绕过这个命令执行。在这种情况下，它应该写一个错误消息，并返回126的退出状态。
 > 
-> *Source: <cite>[Shell Command Language, POSIX.1-2017](https://pubs.opengroup.org/onlinepubs/9699919799.2018edition/utilities/V3_chap02.html#tag_18_09_01_01)</cite>*
+> *来源：[Shell命令语言，POSIX.1-2017](https://pubs.opengroup.org/onlinepubs/9699919799.2018edition/utilities/V3_chap02.html#tag_18_09_01_01)*
 
-Computers are so cool!
+计算机太酷了！

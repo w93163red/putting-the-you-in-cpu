@@ -8,24 +8,24 @@ updatedAt: 2023-07-17T17:16:18.079Z
 
 import CodeBlock from '../../components/CodeBlock.astro'
 
-We pretty thoroughly understand `execve` now. At the end of most paths, the kernel will reach a final program containing machine code for it to launch. Typically, a setup process is required before actually jumping to the code — for example, different parts of the program have to be loaded into the right places in memory. Each program needs different amounts of memory for different things, so we have standard file formats that specify how to set up a program for execution. While Linux supports many such formats, the most common format by far is *ELF* (executable and linkable format).
+我们现在对 `execve` 有了相当全面的理解。在大多数路径的最后,内核会达到一个包含要启动的机器代码的最终程序。通常,在实际跳转到代码之前需要一个设置过程 - 例如,程序的不同部分必须加载到内存中的正确位置。每个程序需要不同数量的内存用于不同的事情,所以我们有标准的文件格式来指定如何设置程序以执行。虽然 Linux 支持许多这样的格式,但迄今为止最常见的格式是 *ELF*（可执行和可链接格式）。
 
 <p>
 	<img src='/images/gnu-linux-elf-drawing.jpg' loading='eager' style='max-width: 260px; margin: 0 auto;' alt='A marker drawing on paper. A wizard elf is shown meditating, holding the head of a gnu in one hand and a Linux penguin in the other. The elf trails off, saying "Well, actually, Linux is just the kernel, the operating system is..." The drawing is captioned in red marker: "You&apos;ve heard of elf on a shelf! Now, get ready for... elf on a GNU/Linux." The drawing is signed "Nicky."' width='529' height='256' />
 </p>
 <div style='text-align: center;'>
 	<p style='margin-top: -10px;'>
-		(Thank you to <a href='https://ncase.me/' target='_blank'>Nicky Case</a> for the adorable drawing.)
+		(感谢 <a href='https://ncase.me/' target='_blank'>Nicky Case</a> 提供的可爱插图。)
 	</p>
 </div>
 
-> **Aside: are elves everywhere?**
+> **题外话:精灵无处不在?**
 > 
-> When you run an app or command-line program on Linux, it's exceedingly likely that it's an ELF binary. However, on macOS the de-facto format is  [Mach-O](https://en.wikipedia.org/wiki/Mach-O) instead. Mach-O does all the same things as ELF but is structured differently. On Windows, .exe files use the [Portable Executable](https://en.wikipedia.org/wiki/Portable_Executable) format which is, again, a different format with the same concept.
+> 当你在 Linux 上运行应用程序或命令行程序时,极有可能它是一个 ELF 二进制文件。然而,在 macOS 上,事实上的标准格式是 [Mach-O](https://en.wikipedia.org/wiki/Mach-O)。Mach-O 做的事情和 ELF 一样,但结构不同。在 Windows 上,.exe 文件使用 [可移植可执行文件](https://en.wikipedia.org/wiki/Portable_Executable) 格式,这又是一个概念相同但格式不同的格式。
 
-In the Linux kernel, ELF binaries are handled by the `binfmt_elf` handler, which is more complex than many other handlers and contains thousands of lines of code. It's responsible for parsing out certain details from the ELF file and using them to load the process into memory and execute it.
+在 Linux 内核中,ELF 二进制文件由 `binfmt_elf` 处理程序处理,它比许多其他处理程序更复杂,包含数千行代码。它负责从 ELF 文件中解析出某些细节,并使用它们将进程加载到内存中并执行。
 
-*I ran some command-line kung fu to sort binfmt handlers by line count:*
+*我运行了一些命令行操作来按行数对 binfmt 处理程序进行排序:*
 
 <CodeBlock name='Shell session'>
 ```
@@ -39,95 +39,95 @@ $ wc -l binfmt_* | sort -nr | sed 1d
 ```
 </CodeBlock>
 
-## File Structure
+## 文件结构
 
-Before looking more deeply at how `binfmt_elf` executes ELF files, let's take a look at the file format itself. ELF files are typically made up of four parts:
+在更深入地研究 `binfmt_elf` 如何执行 ELF 文件之前,让我们看看文件格式本身。ELF 文件通常由四个部分组成:
 
 <img src='/images/elf-file-structure.png' loading='lazy' style='max-width: 500px; margin: 0 auto;' alt='A diagram showing an overview of the structure of ELF files, with four sequential sections. Section 1, ELF Header: basic information about the binary, and locations of PHT and SHT. Section 2, Program Header Table (PHT): describes how and where to load the ELF file&apos;s data into memory. Section 3, Section Header Table (SHT): optional "map" of the data to assist in debugging. Section 4, Data: all of the binary&apos;s data. The PHT and SHT point into this section.' width='1033' height='786' />
 
-### ELF Header
+### ELF 头
 
-Every ELF file has an [ELF header](https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html). It has the very important job of conveying basic information about the binary such as:
+每个 ELF 文件都有一个 [ELF 头](https://refspecs.linuxfoundation.org/elf/gabi4+/ch4.eheader.html)。它有非常重要的任务,传达关于二进制文件的基本信息,例如:
 
-- What processor it's designed to run on. ELF files can contain machine code for different processor types, like ARM and x86.
-- Whether the binary is meant to be run on its own as an executable, or whether it's meant to be loaded by other programs as a "dynamically linked library." We'll go into details about what dynamic linking is soon.
-- The entry point of the executable. Later sections specify exactly where to load data contained in the ELF file into memory. The entry point is a memory address pointing to where the first machine code instruction is in memory after the entire process has been loaded.
+- 它设计运行的处理器。ELF 文件可以包含不同处理器类型的机器代码,如 ARM 和 x86。
+- 该二进制文件是否旨在作为可执行文件独立运行,或者是否旨在作为"动态链接库"被其他程序加载。我们很快会详细讨论动态链接是什么。
+- 可执行文件的入口点。后面的部分会详细说明将 ELF 文件中包含的数据加载到内存中的确切位置。入口点是一个内存地址,指向整个进程加载后第一条机器代码指令在内存中的位置。
 
-The ELF header is always at the start of the file. It specifies the locations of the program header table and section header, which can be anywhere within the file. Those tables, in turn, point to data stored elsewhere in the file.
+ELF 头总是在文件的开头。它指定了程序头表和段头的位置,这些可以在文件中的任何位置。这些表反过来指向存储在文件其他地方的数据。
 
-### Program Header Table
+### 程序头表
 
-The [program header table](https://refspecs.linuxbase.org/elf/gabi4+/ch5.pheader.html) is a series of entries containing specific details for how to load and execute the binary at runtime. Each entry has a type field that says what detail it's specifying — for example, `PT_LOAD` means it contains data that should be loaded into memory, but `PT_NOTE` means the segment contains informational text that shouldn't necessarily be loaded anywhere.
+[程序头表](https://refspecs.linuxbase.org/elf/gabi4+/ch5.pheader.html) 是一系列条目,包含有关如何在运行时加载和执行二进制文件的具体细节。每个条目都有一个类型字段,说明它指定的是什么细节 - 例如,`PT_LOAD` 意味着它包含应该加载到内存中的数据,而 `PT_NOTE` 意味着该段包含不一定要加载到任何地方的信息性文本。
 
 <img src='/images/elf-program-header-types.png' loading='lazy' style='max-width: 500px; margin: 0 auto;' alt='A table showing four different common program header types. Type 1, PT_LOAD: data to be loaded into memory. Type 2, PT_NOTE: freeform text like copyright notices, version info, etc.. Type 3, PT_DYNAMIC: Info about dynamic linking. Type 4, PT_INTERP: Path to the location of an "ELF interpreter."' width='904' height='338' />
 
-Each entry specifies information about where its data is in the file and, sometimes, how to load the data into memory:
+每个条目指定有关其数据在文件中的位置以及有时如何将数据加载到内存中的信息:
 
-- It points to the position of its data within the ELF file.
-- It can specify what virtual memory address the data should be loaded into memory at. This is typically left blank if the segment isn't meant to be loaded into memory.
-- Two fields specify the length of the data: one for the length of the data in the file, and one for the length of the memory region to be created. If the memory region length is longer than the length in the file, the extra memory will be filled with zeroes. This is beneficial for programs that might want a static segment of memory to use at runtime; these empty segments of memory are typically called [BSS](https://en.wikipedia.org/wiki/.bss) segments.
-- Finally, a flags field specifies what operations should be permitted if it's loaded into memory: `PF_R` makes it readable, `PF_W` makes it writable, and `PF_X` means it's code that should be allowed to execute on the CPU.
+- 它指向其数据在 ELF 文件中的位置。
+- 它可以指定数据应该加载到内存中的虚拟内存地址。如果该段不打算加载到内存中,这通常留空。
+- 两个字段指定数据的长度:一个用于文件中数据的长度,一个用于要创建的内存区域的长度。如果内存区域长度大于文件中的长度,多余的内存将用零填充。这对于可能想在运行时使用静态内存段的程序有益;这些空的内存段通常称为 [BSS](https://en.wikipedia.org/wiki/.bss) 段。
+- 最后,一个标志字段指定如果它被加载到内存中应该允许什么操作:`PF_R` 使其可读,`PF_W` 使其可写,`PF_X` 意味着它是应该允许在 CPU 上执行的代码。
 
-### Section Header Table
+### 段头表
 
-The [section header table](https://refspecs.linuxbase.org/elf/gabi4+/ch4.sheader.html) is a series of entries containing information about *sections*. This section information is like a map, charting the data inside the ELF file. It makes it easy for [programs like debuggers](https://www.sourceware.org/gdb/) to understand the intended uses of different portions of the data.
+[段头表](https://refspecs.linuxbase.org/elf/gabi4+/ch4.sheader.html) 是一系列包含有关*段*信息的条目。这个段信息就像一张地图,绘制了 ELF 文件内部的数据。它使得[像调试器这样的程序](https://www.sourceware.org/gdb/)很容易理解数据不同部分的预期用途。
 
 <img src='/images/elf-section-header-table-diagram.png' loading='lazy' style='max-width: 450px; margin: 0 auto;' alt='An old treasure map with islands, rivers, palm trees, and a compass rose. Some of the islands are labeled with ELF section names such as ".text", ".data", ".shstrtab", and ".bss". The drawing is captioned "The section header table is like a map for binary data."' width='701' height='617' />
 
-For example, the program header table can specify a large swath of data to be loaded into memory together. That single `PT_LOAD` block might contain both code and global variables! There's no reason those have to be specified separately to *run* the program; the CPU just starts at the entry point and steps forward, accessing data when and where the program requests it. However, software like a debugger for *analyzing* the program needs to know exactly where each area starts and ends, otherwise it might try to decode some text that says "hello" as code (and since that isn't valid code, explode). This information is stored in the section header table.
+例如,程序头表可以指定一大块数据一起加载到内存中。那个单一的 `PT_LOAD` 块可能同时包含代码和全局变量!*运行*程序不需要单独指定这些;CPU 只是从入口点开始,向前步进,在程序请求时和请求的地方访问数据。然而,用于*分析*程序的软件(如调试器)需要确切知道每个区域的开始和结束位置,否则它可能会尝试将一些说"hello"的文本解码为代码(由于这不是有效的代码,会导致崩溃)。这些信息存储在段头表中。
 
-While it's usually included, the section header table is actually optional. ELF files can run perfectly well with the section header table completely removed, and developers who want to hide what their code does will sometimes intentionally strip or mangle the section header table from their ELF binaries to [make them harder to decode](https://binaryresearch.github.io/2019/09/17/Analyzing-ELF-Binaries-with-Malformed-Headers-Part-1-Emulating-Tiny-Programs.html).
+虽然通常包括,但段头表实际上是可选的。ELF 文件可以在完全移除段头表的情况下完美运行,想要隐藏其代码作用的开发者有时会故意从其 ELF 二进制文件中剥离或混淆段头表,以[使它们更难解码](https://binaryresearch.github.io/2019/09/17/Analyzing-ELF-Binaries-with-Malformed-Headers-Part-1-Emulating-Tiny-Programs.html)。
 
-Each section has a name, a type, and some flags that specify how it's intended to be used and decoded. Standard names usually start with a dot by convention. The most common sections are:
+每个段都有一个名称、一个类型和一些标志,指定它应该如何使用和解码。标准名称通常按惯例以点开头。最常见的段是:
 
-- `.text`: machine code to be loaded into memory and executed on the CPU. `SHT_PROGBITS` type with the `SHF_EXECINSTR` flag to mark it as executable, and the `SHF_ALLOC` flag which means it's loaded into memory for execution. (Don't get confused by the name, it's still just binary machine code! I always found it somewhat strange that it's called `.text` despite not being readable "text.")
-- `.data`: initialized data hardcoded in the executable to be loaded into memory. For example, a global variable containing some text might be in this section. If you write low-level code, this is the section where statics go. This also has the type `SHT_PROGBITS`, which just means the section contains "information for the program." Its flags are `SHF_ALLOC` and `SHF_WRITE` to mark it as writable memory.
-- `.bss`: I mentioned earlier that it's common to have some allocated memory that starts out zeroed. It would be a waste to include a bunch of empty bytes in the ELF file, so a special segment type called BSS is used. It's helpful to know about BSS segments during debugging, so there's also a section header table entry that specifies the length of the memory to be allocated. It's of type `SHT_NOBITS`, and is flagged `SHF_ALLOC` and `SHF_WRITE`.
-- `.rodata`: this is like `.data` except it's read-only. In a very basic C program that runs `printf("Hello, world!")`, the string "Hello world!" would be in a `.rodata` section, while the actual printing code would be in a `.text` section.
-- `.shstrtab`: this is a fun implementation detail! The names of sections themselves (like `.text` and `.shstrtab`) aren't included directly in the section header table. Instead, each entry contains an offset to a location in the ELF file that contains its name. This way, each entry in the section header table can be the same size, making them easier to parse — an offset to the name is a fixed-size number, whereas including the name in the table would use a variable-size string. All of this name data is stored in its own section called `.shstrtab`, of type `SHT_STRTAB`.
+- `.text`: 要加载到内存中并在 CPU 上执行的机器代码。类型为 `SHT_PROGBITS`,带有 `SHF_EXECINSTR` 标志标记为可执行,以及 `SHF_ALLOC` 标志,表示它被加载到内存中执行。(不要被名称混淆,它仍然只是二进制机器代码!我一直觉得它被称为 `.text` 有点奇怪,尽管它不是可读的"文本"。)
+- `.data`: 要加载到内存中的可执行文件中硬编码的初始化数据。例如,包含一些文本的全局变量可能在这个段中。如果你编写低级代码,这是静态变量所在的段。这也是 `SHT_PROGBITS` 类型,这只是意味着该段包含"程序的信息"。它的标志是 `SHF_ALLOC` 和 `SHF_WRITE`,将其标记为可写内存。
+- `.bss`: 我之前提到过,通常会有一些分配的内存从零开始。在 ELF 文件中包含一堆空字节会是一种浪费,所以使用了一种特殊的段类型叫做 BSS。在调试过程中了解 BSS 段很有帮助,所以还有一个段头表条目指定要分配的内存长度。它的类型是 `SHT_NOBITS`,标志为 `SHF_ALLOC` 和 `SHF_WRITE`。
+- `.rodata`: 这和 `.data` 类似,只是它是只读的。在一个非常基础的运行 `printf("Hello, world!")` 的 C 程序中,"Hello world!"字符串会在 `.rodata` 段中,而实际的打印代码会在 `.text` 段中。
+- `.shstrtab`: 这是一个有趣的实现细节!段的名称本身(如 `.text` 和 `.shstrtab`)并不直接包含在段头表中。相反,每个条目包含一个偏移量,指向 ELF 文件中包含其名称的位置。这样,段头表中的每个条目可以是相同的大小,使它们更容易解析 - 名称的偏移量是一个固定大小的数字,而在表中包含名称会使用可变大小的字符串。所有这些名称数据都存储在自己的段中,称为 `.shstrtab`,类型为 `SHT_STRTAB`。
 
-### Data
+### 数据
 
-The program and section header table entries all point to blocks of data within the ELF file, whether to load them into memory, to specify where program code is, or just to name sections. All of these different pieces of data are contained in the data section of the ELF file.
+程序和段头表条目都指向 ELF 文件内的数据块,无论是将它们加载到内存中,还是指定程序代码的位置,或者仅仅是命名段。所有这些不同的数据片段都包含在 ELF 文件的数据部分中。
 
 <img src='/images/elf-data-section.png' loading='lazy' style='max-width: 680px;' alt='A diagram demonstrating how different parts of the ELF file reference locations within the data block. A continuous collection of data is depicted, fading out at the end, containing some clearly recognizable things such as the path to an ELF interpreter, the section title ".rodata", and the string "Hello, world!" A couple example ELF sections float above the data block, with arrows pointing to their data. For example, the data sections from both the PHT and SHT entry examples point to the same "Hello, world!" text. The SHT entry&apos;s label is also stored in the data block.' width='1210' height='386' />
 
-## A Brief Explanation of Linking 
+## 链接的简要解释
 
-Back to the `binfmt_elf` code: the kernel cares about two types of entries in the program header table.
+回到 `binfmt_elf` 代码:内核关心程序头表中的两种类型的条目。
 
-`PT_LOAD` segments specify where all the program data, like the `.text` and `.data` sections, need to be loaded into memory. The kernel reads these entries from the ELF file to load the data into memory so the program can be executed by the CPU.
+`PT_LOAD` 段指定所有程序数据(如 `.text` 和 `.data` 段)需要加载到内存中的位置。内核从 ELF 文件中读取这些条目,将数据加载到内存中,以便 CPU 可以执行程序。
 
-The other type of program header table entry that the kernel cares about is `PT_INTERP`, which specifies a "dynamic linking runtime."
+内核关心的另一种程序头表条目类型是 `PT_INTERP`,它指定了一个"动态链接运行时"。
 
-Before we talk about what dynamic linking is, let's talk about "linking" in general. Programmers tend to build their programs on top of libraries of reusable code — for example, libc, which we talked about earlier. When turning your source code into an executable binary, a program called a linker resolves all these references by finding the library code and copying it into the binary. This process is called *static linking*, which means external code is included directly in the file that's distributed.
+在我们讨论动态链接是什么之前,让我们先谈谈一般的"链接"。程序员倾向于在可重用代码库的基础上构建他们的程序 - 例如,我们之前讨论过的 libc。在将源代码转换为可执行二进制文件时,一个名为链接器的程序通过查找库代码并将其复制到二进制文件中来解决所有这些引用。这个过程被称为*静态链接*,意味着外部代码直接包含在分发的文件中。
 
-However, some libraries are super common. You'll find libc is used by basically every program under the sun, since it's the canonical interface for interacting with the OS through syscalls. It would be a terrible use of space to include a separate copy of libc in every single program on your computer. Also, it might be nice if bugs in libraries could be fixed in one place rather than having to wait for each program that uses the library to be updated. Dynamic linking is the solution to these problems.
+然而,有些库非常常见。你会发现基本上每个程序都使用 libc,因为它是与操作系统通过系统调用交互的标准接口。在计算机上的每个程序中都包含一个单独的 libc 副本将是对空间的糟糕使用。此外,如果库中的 bug 能在一个地方修复,而不是等待使用该库的每个程序更新,那会很好。动态链接是解决这些问题的方案。
 
-If a statically linked program needs a function `foo` from a library called `bar`, the program would include a copy of the entirety of `foo`. However, if it's dynamically linked it would only include a reference saying "I need `foo` from library `bar`." When the program is run, `bar` is hopefully installed on the computer and the `foo` function's machine code can be loaded into memory on-demand. If the computer's installation of the `bar` library is updated, the new code will be loaded the next time the program runs without needing any change in the program itself.
+如果一个静态链接的程序需要一个名为 `bar` 的库中的函数 `foo`,该程序将包含整个 `foo` 的副本。然而,如果它是动态链接的,它只会包含一个引用,说"我需要 `bar` 库中的 `foo`"。当程序运行时,希望 `bar` 安装在计算机上,`foo` 函数的机器代码可以按需加载到内存中。如果计算机上安装的 `bar` 库被更新,新代码将在程序下次运行时加载,而不需要程序本身做任何更改。
 
 <img src='/images/static-vs-dynamic-linking.png' loading='lazy' alt='A diagram showing the difference between static and dynamic linking. On the left, static linking is shown with the contents of some code called "foo" being separately copied into two programs. This is accompanied with text saying that library functions are copied from the developer&apos;s computer into each binary at built time. On the right side, dynamic linking is shown: each program contains the name of the "foo" function, with arrows pointing outside the programs into the foo program lying on the user&apos;s computer. This is paired with accompanying text stating that binaries reference the names of library functions, which are loaded from the user&apos;s computer at runtime.' width='1800' height='860' class='big' style='--max-width: 900px;' />
 
-## Dynamic Linking in the Wild
+## 实际中的动态链接
 
-On Linux, dynamically linkable libraries like `bar` are typically packaged into files with the .so (Shared Object) extension. These .so files are ELF files just like programs — you may recall that the ELF header includes a field to specify whether the file is an executable or a library. In addition, shared objects have a `.dynsym` section in the section header table which contains information on what symbols are exported from the file and can be dynamically linked to.
+在 Linux 上,像 `bar` 这样的可动态链接库通常被打包成带有 .so (共享对象)扩展名的文件。这些 .so 文件就像程序一样也是 ELF 文件 - 你可能还记得 ELF 头包含一个字段,用于指定文件是可执行文件还是库。此外,共享对象在段头表中有一个 `.dynsym` 段,其中包含有关从文件导出并可以动态链接到的符号的信息。
 
-On Windows, libraries like `bar` are packaged into .dll (**d**ynamic **l**ink **l**ibrary) files. macOS uses the .dylib (**dy**namically linked **lib**rary) extension. Just like macOS apps and Windows .exe files, these are formatted slightly differently from ELF files but are the same concept and technique.
+在 Windows 上,像 `bar` 这样的库被打包成 .dll (**d**ynamic **l**ink **l**ibrary) 文件。macOS 使用 .dylib (**dy**namically linked **lib**rary) 扩展名。就像 macOS 应用程序和 Windows .exe 文件一样,这些格式与 ELF 文件略有不同,但概念和技术是相同的。
 
-An interesting distinction between the two types of linking is that with static linking, only the portions of the library that are used are included in the executable and thus loaded into memory. With dynamic linking, the *entire library* is loaded into memory. This might initially sound less efficient, but it actually allows modern operating systems to save *more* space by loading a library into memory once and then sharing that code between processes. Only code can be shared as the library needs different state for different programs, but the savings can still be on the order of tens to hundreds of megabytes of RAM.
+两种链接类型之间的一个有趣区别是,使用静态链接时,只有使用的库部分会包含在可执行文件中并加载到内存中。而使用动态链接时,*整个库*都会加载到内存中。这最初可能听起来效率较低,但实际上它允许现代操作系统通过将库加载到内存中一次,然后在进程之间共享该代码来节省*更多*空间。只有代码可以共享,因为库需要为不同的程序保持不同的状态,但节省的空间仍然可能在数十到数百兆字节 RAM 的数量级。
 
-## Execution
+## 执行
 
-Let's hop on back to the kernel running ELF files: if the binary it's executing is dynamically linked, the OS can't just jump to the binary's code right away because there would be missing code — remember, dynamically linked programs only have references to the library functions they need!
+让我们回到内核运行 ELF 文件的话题:如果它正在执行的二进制文件是动态链接的,操作系统不能直接跳转到二进制文件的代码,因为会有缺失的代码 - 记住,动态链接的程序只有对它们需要的库函数的引用!
 
-To run the binary, the OS needs to figure out what libraries are needed, load them, replace all the named pointers with actual jump instructions, and *then* start the actual program code. This is very complex code that interacts deeply with the ELF format, so it's usually a standalone program rather than part of the kernel. ELF files specify the path to the program they want to use (typically something like `/lib64/ld-linux-x86-64.so.2`) in a `PT_INTERP` entry in the program header table.
+要运行二进制文件,操作系统需要弄清楚需要哪些库,加载它们,用实际的跳转指令替换所有命名指针,*然后*才开始实际的程序代码。这是非常复杂的代码,与 ELF 格式深度交互,所以它通常是一个独立的程序,而不是内核的一部分。ELF 文件在程序头表的 `PT_INTERP` 条目中指定它们想要使用的程序的路径(通常是类似 `/lib64/ld-linux-x86-64.so.2` 这样的东西)。
 
-After reading the ELF header and scanning through the program header table, the kernel can set up the memory structure for the new program. It starts by loading all `PT_LOAD` segments into memory, populating the program's static data, BSS space, and machine code. If the program is dynamically linked, the kernel will have to execute the [ELF interpreter](https://unix.stackexchange.com/questions/400621/what-is-lib64-ld-linux-x86-64-so-2-and-why-can-it-be-used-to-execute-file) (`PT_INTERP`), so it also loads the interpreter's data, BSS, and code into memory.
+在读取 ELF 头并扫描程序头表后,内核可以为新程序设置内存结构。它首先将所有 `PT_LOAD` 段加载到内存中,填充程序的静态数据、BSS 空间和机器代码。如果程序是动态链接的,内核将不得不执行 [ELF 解释器](https://unix.stackexchange.com/questions/400621/what-is-lib64-ld-linux-x86-64-so-2-and-why-can-it-be-used-to-execute-file)(`PT_INTERP`),所以它也将解释器的数据、BSS 和代码加载到内存中。
 
-Now the kernel needs to set the instruction pointer for the CPU to restore when returning to userland. If the executable is dynamically linked, the kernel sets the instruction pointer to the start of the ELF interpreter's code in memory. Otherwise, the kernel sets it to the start of the executable.
+现在内核需要设置 CPU 在返回用户空间时要恢复的指令指针。如果可执行文件是动态链接的,内核将指令指针设置为内存中 ELF 解释器代码的开始。否则,内核将其设置为可执行文件的开始。
 
-The kernel is almost ready to return from the syscall (remember, we're still in `execve`). It pushes the `argc`, `argv`, and environment variables to the stack for the program to read when it begins.
+内核几乎准备好从系统调用返回了(记住,我们仍然在 `execve` 中)。它将 `argc`、`argv` 和环境变量推送到栈上,以便程序在开始时读取。
 
-The registers are now cleared. Before handling a syscall, the kernel stores the current value of registers to the stack to be restored when switching back to user space. Before returning to user space, the kernel zeroes this part of the stack.
+现在寄存器被清除。在处理系统调用之前,内核将寄存器的当前值存储到栈中,以便在切换回用户空间时恢复。在返回用户空间之前,内核将栈的这部分清零。
 
-Finally, the syscall is over and the kernel returns to userland. It restores the registers, which are now zeroed, and jumps to the stored instruction pointer. That instruction pointer is now the starting point of the new program (or the ELF interpreter) and the current process has been replaced!
+最后,系统调用结束,内核返回用户空间。它恢复寄存器,现在寄存器已被清零,并跳转到存储的指令指针。该指令指针现在是新程序(或 ELF 解释器)的起点,当前进程已被替换!

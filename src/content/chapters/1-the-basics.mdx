@@ -6,138 +6,96 @@ slug: the-basics
 updatedAt: 2023-07-19T18:57:54.630Z
 ---
 
-The one thing that surprised me over and over again while writing this article was how *simple* computers are. It's still hard for me not to psych myself out, expecting more complexity or abstraction than actually exists! If there's one thing you should burn into your brain before continuing, it's that everything that seems simple actually is that simple. This simplicity is very beautiful and sometimes very, very cursed.
+在写这篇文章的过程中,一件反复让我惊讶的事情是计算机实际上有多简单。我仍然很难不过度思考,期望比实际存在的更多的复杂性或抽象!如果在继续之前你应该牢记一件事,那就是看似简单的东西实际上就是那么简单。这种简单性非常美丽,有时也非常非常诅咒。
 
-Let's start with the basics of how your computer works at its very core.
+让我们从计算机最核心的工作原理开始。
 
-## How Computers Are Architected
+## 计算机的架构方式
 
-The *central processing unit* (CPU) of a computer is in charge of all computation. It's the big cheese. The shazam alakablam. It starts chugging as soon as you start your computer, executing instruction after instruction after instruction.
+计算机的*中央处理器*(CPU)是计算的大脑。它是核心中的核心，是整个系统的灵魂所在。一旦你启动计算机，它就开始不知疲倦地工作，一条接一条地执行指令。
 
-The first mass-produced CPU was the [Intel 4004](http://www.intel4004.com/), designed in the late 60s by an Italian physicist and engineer named Federico Faggin. It was a 4-bit architecture instead of the [64-bit](https://en.wikipedia.org/wiki/64-bit_computing) systems we use today, and it was far less complex than modern processors, but a lot of its simplicity does still remain.
+第一个大规模生产的CPU是[Intel 4004](http://www.intel4004.com/)，由意大利物理学家兼工程师Federico Faggin在60年代末设计。它是4位架构，不同于我们今天使用的[64位](https://en.wikipedia.org/wiki/64-bit_computing)系统，功能也远不如现代处理器复杂。但是，它的许多基本原理至今仍在使用。
 
-The "instructions" that CPUs execute are just binary data: a byte or two to represent what instruction is being run (the opcode), followed by whatever data is needed to run the instruction. What we call *machine code* is nothing but a series of these binary instructions in a row. [Assembly](https://en.wikipedia.org/wiki/Assembly_language) is a helpful syntax for reading and writing machine code that's easier for humans to read and write than raw bits; it is always compiled to the binary that your CPU knows how to read.
+CPU执行的"指令"其实就是二进制数据：一两个字节表示要执行的指令（操作码），后面跟着执行指令所需的数据。我们所说的*机器码*不过是一系列连续的二进制指令。[汇编语言](https://en.wikipedia.org/wiki/Assembly_language)是一种更易于人类阅读和编写的语法，用于表示机器码；它最终总是被编译成CPU能够理解的二进制代码。
 
 <img src='/images/assembly-to-machine-code-translation.png' loading='eager' style='max-width: 400px;' alt='A diagram demonstrating how machine code translates to assembly and back. A bidirectional arrow connects three examples: Machine Code (Binary) followed by 3 bytes of binary numbers, Machine Code (Hex) followed by those 3 bytes translated to hex (0x83, 0xC3, 0x0A), and Assembly followed by "add ebx, 10". The Assembly and Machine Code are color-coded so it is clear that each byte of the machine code translate to one word in the assembly.' width='935' height='505' />
 
-> An aside: instructions aren't always represented 1:1 in machine code as in the above example. For example, `add eax, 512` translates to `05 00 02 00 00`.
+> 补充说明：指令在机器码中并不总是一一对应的。比如，`add eax, 512`会被翻译成`05 00 02 00 00`。
 > 
-> The first byte (`05`) is an opcode specifically representing *adding the EAX register to a 32-bit number*. The remaining bytes are 512 (`0x200`) in [little-endian](https://en.wikipedia.org/wiki/Endianness) byte order.
+> 第一个字节（`05`）是一个特定的操作码，表示*将一个32位数加到EAX寄存器上*。剩下的字节是512（`0x200`），按[小端序](https://en.wikipedia.org/wiki/Endianness)排列。
 >
-> Defuse Security created [a helpful tool](https://defuse.ca/online-x86-assembler.htm) for playing around with the translation between assembly and machine code.
+> Defuse Security开发了[一个很有用的工具](https://defuse.ca/online-x86-assembler.htm)，可以让你玩玩汇编和机器码之间的转换。
 
-RAM is your computer's main memory bank, a large multi-purpose space which stores all the data used by programs running on your computer. That includes the program code itself as well as the code at the core of the operating system. The CPU always reads machine code directly from RAM, and code can't be run if it isn't loaded into RAM.
+内存（RAM）是计算机的主要存储区，是一个大型多用途空间，存储了计算机上运行的程序使用的所有数据。这包括程序代码本身，以及操作系统核心的代码。CPU总是直接从内存中读取机器码，如果代码没有加载到内存中，就无法运行。
 
-The CPU stores an *instruction pointer* which points to the location in RAM where it's going to fetch the next instruction. After executing each instruction, the CPU moves the pointer and repeats. This is the *fetch-execute cycle*.
+CPU有一个*指令指针*，指向内存中下一条要执行的指令的位置。执行每条指令后，CPU移动指针并重复这个过程。这就是我们所说的*取指-执行循环*。
 
 <img src='/images/fetch-execute-cycle.png' loading='lazy' style='max-width: 360px; margin: 0 auto;' alt='A diagram demonstrating the fetch-execute cycle. There are two bubbles of text. The first is labeled "Fetch" and has the text "Read instruction from memory at the current instruction pointer." The second is titled "Execute" and has the text "Run the instruction and then move the instruction pointer." The fetch bubble has an arrow pointing to the execute bubble, and the execute bubble has an arrow pointing back to the fetch bubble, implying a repeated process.' width='848' height='458' />
 
-After executing an instruction, the pointer moves forward to immediately after the instruction in RAM so that it now points to the next instruction. That's why code runs! The instruction pointer just keeps chugging forward, executing machine code in the order in which it has been stored in memory. Some instructions can tell the instruction pointer to jump somewhere else instead, or jump different places depending on a certain condition; this makes reusable code and conditional logic possible.
+执行指令后，指针向前移动到内存中紧接在指令之后的位置，指向下一条指令。这就是代码运行的原理！指令指针不断向前推进，按照存储在内存中的顺序执行机器码。某些指令可以告诉指令指针跳到其他地方，或者根据特定条件跳到不同的地方；这使得代码复用和条件逻辑成为可能。
 
-This instruction pointer is stored in a [*register*](https://en.wikipedia.org/wiki/Processor_register). Registers are small storage buckets that are extremely fast for the CPU to read and write to. Each CPU architecture has a fixed set of registers, used for everything from storing temporary values during computations to configuring the processor.
+这个指令指针存储在一个叫做[*寄存器*](https://en.wikipedia.org/wiki/Processor_register)的地方。寄存器就像是CPU的小本子，读写速度极快。每种CPU架构都有固定的寄存器集，用途从存储计算过程中的临时值到配置处理器等各种任务。
 
-Some registers are directly accessible from machine code, like `ebx` in the earlier diagram.
+有些寄存器可以直接通过机器码访问，比如前面图表中的`ebx`。
 
-Other registers are only used internally by the CPU, but can often be updated or read using specialized instructions. One example is the instruction pointer, which can't be read directly but can be updated with, for example, a jump instruction.
+其他寄存器只在CPU内部使用，但通常可以通过特殊指令更新或读取。比如指令指针，虽然不能直接读取，但可以通过跳转指令等方式更新。
 
-## Processors Are Naive
+## 处理器其实很单纯
 
-Let's go back to the original question: what happens when you run an executable program on your computer? First, a bunch of magic happens to get ready to run it — we’ll work through all of this later — but at the end of the process there’s machine code in a file somewhere. The operating system loads this into RAM and instructs the CPU to jump the instruction pointer to that position in RAM. The CPU continues running its fetch-execute cycle as usual, so the program begins executing!
+让我们回到最初的问题：当你在电脑上运行一个程序时，究竟发生了什么？首先，有一系列复杂的准备工作 —— 我们稍后会详细讲解 —— 但最终，某个文件中会有机器码。操作系统将这些代码加载到内存中，然后告诉CPU把指令指针指向内存中的那个位置。CPU继续它的取指-执行循环，于是程序就开始运行了！
 
-(This was one of those psyching-myself-out moments for me — seriously, this is how the program you are using to read this article is running! Your CPU is fetching your browser's instructions from RAM in sequence and directly executing them, and they're rendering this article.)
+（这是那种让我惊讶的时刻之一 —— 说真的，你现在用来阅读这篇文章的程序就是这样运行的！你的CPU正在从内存中依次获取你的浏览器的指令并直接执行它们，它们正在渲染这篇文章。）
 
 <img src='/images/instruction-pointer.png' loading='lazy' style='max-width: 400px;' alt='A diagram depicting a series of bytes of machine code in RAM. A highlighted byte is pointed to by an arrow labeled "Instruction Pointer," and there are arrows representing how the instruction pointer moves forward in RAM.' width='935' height='372' />
 
-It turns out CPUs have a super basic worldview; they only see the current instruction pointer and a bit of internal state. Processes are entirely operating system abstractions, not something CPUs natively understand or keep track of.
+事实证明，CPU的世界观非常简单；它只关注当前的指令指针和一些内部状态。进程这个概念完全是操作系统的抽象，不是CPU本身理解或跟踪的东西。
 
-*\*waves hands\* processes are abstractions made up by ~~os devs~~ big byte to sell more computers*
+*\*打个比方\* 进程就像是操作系统编造出来的童话故事，为的是卖更多的电脑*
 
-For me, this raises more questions than it answers:
+对我来说，这引发了比它回答的更多的问题：
 
-1. If the CPU doesn’t know about multiprocessing and just executes instructions sequentially, why doesn’t it get stuck inside whatever program it’s running? How can multiple programs run at once?
-2. If programs run directly on the CPU, and the CPU can directly access RAM, why can't code access memory from other processes, or, god forbid, the kernel?
-3. Speaking of which, what's the mechanism that prevents every process from running any instruction and doing anything to your computer? AND WHAT'S A DAMN SYSCALL?
+1. 如果CPU不知道多进程这回事，只是一条接一条地执行指令，为什么它不会被困在某个程序里出不来？多个程序是如何同时运行的？
+2. 如果程序直接在CPU上运行，而CPU可以直接访问内存，为什么代码不能访问其他进程的内存，或者更可怕的是，访问内核的内存？
+3. 说到这里，有什么机制可以防止每个进程随意执行指令，对你的计算机为所欲为？还有，系统调用到底是个什么东西？
 
-The question about memory deserves its own section and is covered in [chapter 5](/the-translator-in-your-computer) — the TL;DR is that most memory accesses actually go through a layer of misdirection that remaps the entire address space. For now, we're going to pretend that programs can access all RAM directly and computers can only run one process at once. We'll explain away both of these assumptions in time.
+关于内存的问题值得单独讨论，我们会在[第5章](/the-translator-in-your-computer)详细解释 —— 简单来说，大多数内存访问实际上都经过了一层转换，重新映射了整个地址空间。现在，我们先假设程序可以直接访问所有内存，计算机一次只能运行一个进程。我们稍后会解释这两个假设。
 
-It's time to leap through our first rabbit hole into a land filled with syscalls and security rings.
+现在，让我们深入探索系统调用和安全环这个复杂而有趣的领域。
 
-> **Aside: what is a kernel, btw?**
+> **顺便说一下，什么是内核？**
 > 
-> Your computer's operating system, like macOS, Windows, or Linux, is the collection of software that runs on your computer and makes all the basic stuff work. "Basic stuff" is a really general term, and so is "operating system" — depending on who you ask, it can include such things as the apps, fonts, and icons that come with your computer by default.
+> 你电脑上的操作系统，无论是macOS、Windows还是Linux，都是一组软件的集合，负责让你的电脑正常工作。"正常工作"这个词很笼统，"操作系统"这个词也是 —— 取决于你问谁，它可能包括电脑自带的应用程序、字体和图标等。
 > 
-> The kernel, however, is the core of the operating system. When you boot up your computer, the instruction pointer starts at a program somewhere. That program is the kernel. The kernel has near-full access to your computer's memory, peripherals, and other resources, and is in charge of running software installed on your computer (known as userland programs). We'll learn about how the kernel has this access — and how userland programs don't — over the course of this article.
+> 但是，内核是操作系统的核心。当你开机时，指令指针会指向某个程序的起点。那个程序就是内核。内核几乎可以完全控制你电脑的内存、外设和其他资源，负责运行安装在你电脑上的软件（我们称之为用户态程序）。在接下来的内容中，我们会了解内核是如何获得这种控制权的 —— 以及为什么用户态程序没有这种权限。
 >
-> Linux is just a kernel and needs plenty of userland software like shells and display servers to be usable. The kernel in macOS is called [XNU](https://en.wikipedia.org/wiki/XNU) and is Unix-like, and the modern Windows kernel is called the [NT Kernel](https://en.wikipedia.org/wiki/Architecture_of_Windows_NT).
+> Linux本身只是一个内核，需要配合大量用户空间的软件如shell和显示服务器才能使用。macOS中的内核叫做[XNU](https://en.wikipedia.org/wiki/XNU)，是类Unix的，而现代Windows的内核叫做[NT Kernel](https://en.wikipedia.org/wiki/Architecture_of_Windows_NT)。
 
-## Two Rings to Rule Them All
+## 两个世界：内核模式和用户模式
 
-The *mode* (sometimes called privilege level or ring) a processor is in controls what it's allowed to do. Modern architectures have at least two options: kernel/supervisor mode and user mode. While an architecture might support more than two modes, only kernel mode and user mode are commonly used these days.
+处理器的*模式*（有时也叫特权级别或环）决定了它能做什么。现代架构至少有两种模式：内核/监管模式和用户模式。虽然一个架构可能支持更多的模式，但现在通常只用内核模式和用户模式。
 
-In kernel mode, anything goes: the CPU is allowed to execute any supported instruction and access any memory. In user mode, only a subset of instructions is allowed, I/O and memory access is limited, and many CPU settings are locked. Generally, the kernel and drivers run in kernel mode while applications run in user mode.
+在内核模式下，处理器可以为所欲为：可以执行任何支持的指令，访问任何内存。而在用户模式下，只能执行部分指令，输入输出和内存访问都受限，许多CPU设置也被锁定。一般来说，内核和驱动程序在内核模式下运行，而应用程序在用户模式下运行。
 
-Processors start in kernel mode. Before executing a program, the kernel initiates the switch to user mode.
+处理器启动时是在内核模式。在执行程序之前，内核会切换到用户模式。
 
 <img src='/images/kernel-mode-vs-user-mode.png' loading='lazy' style='max-width: 500px; margin: 0 auto;' alt='Two fake iMessage screenshots demonstrating the different between user and kernel mode protections. The first, labeled Kernel Mode: right side says "Read this protected memory!", left side replies "Here you go, dear :)". The second, labeled User Mode: right side says "Read this protected memory!", left side replies "No! Segmentation fault!"' width='1072' height='433' />
 
-An example of how processor modes manifest in a real architecture: on x86-64, the current privilege level (CPL) can be read from a register called `cs` (code segment). Specifically, the CPL is contained in the two [least significant bits](https://en.wikipedia.org/wiki/Bit_numbering) of the `cs` register. Those two bits can store x86-64's four possible rings: ring 0 is kernel mode and ring 3 is user mode. Rings 1 and 2 are designed for running drivers but are only used by a handful of older niche operating systems. If the CPL bits are `11`, for example, the CPU is running in ring 3: user mode.
+在实际的CPU架构中，这是怎么实现的呢？以x86-64为例，当前特权级别（CPL）存储在一个叫做`cs`（代码段）的寄存器中。具体来说，CPL就是`cs`寄存器的两个[最低有效位](https://en.wikipedia.org/wiki/Bit_numbering)。这两个位可以表示x86-64的四个可能的环：环0是内核模式，环3是用户模式。环1和环2本来是为驱动程序设计的，但现在只有少数老旧的小众操作系统还在使用。比如，如果CPL位是`11`，那么CPU就是在环3（也就是用户模式）下运行。
  
-## What Even is a Syscall?
+## 系统调用是个什么东西？
 
-Programs run in user mode because they can't be trusted with full access to the computer. User mode does its job, preventing access to most of the computer — but programs need to be able to access I/O, allocate memory, and interact with the operating system *somehow*! To do so, software running in user mode has to ask the operating system kernel for help. The OS can then implement its own security protections to prevent programs from doing anything malicious.
+程序在用户模式下运行，是因为我们不能完全信任它们。用户模式阻止了程序访问大部分计算机资源 —— 但程序总需要进行输入输出、分配内存，以及与操作系统交互吧！为此，用户模式下运行的软件必须向操作系统内核求助。然后操作系统可以实施自己的安全措施，防止程序做坏事。
 
-If you've ever written code that interacts with the OS, you'll probably recognize functions like `open`, `read`, `fork`, and `exit`. Below a couple of layers of abstraction, these functions all use *system calls* to ask the OS for help. A system call is a special procedure that lets a program start a transition from user space to kernel space, jumping from the program's code into OS code.
+如果你写过与操作系统交互的代码，你可能认识`open`、`read`、`fork`和`exit`这样的函数。在几层抽象之下，这些函数都使用*系统调用*来向操作系统求助。系统调用是一种特殊的程序，允许程序从用户空间跳到内核空间，从程序的代码跳到操作系统的代码。
 
-User space to kernel space control transfers are accomplished using a processor feature called [*software interrupts*](https://en.wikipedia.org/wiki/Interrupt#Software_interrupts):
+从用户空间到内核空间的控制转移是通过处理器的一个叫做[*软件中断*](https://en.wikipedia.org/wiki/Interrupt#Software_interrupts)的功能实现的：
 
-1. During the boot process, the operating system stores a table called an [*interrupt vector table*](https://en.wikipedia.org/wiki/Interrupt_vector_table) (IVT; x86-64 calls this the [interrupt descriptor table](https://en.wikipedia.org/wiki/Interrupt_descriptor_table)) in RAM and registers it with the CPU. The IVT maps interrupt numbers to handler code pointers.
+1. 在开机过程中，操作系统在内存中创建一个叫做[*中断向量表*](https://en.wikipedia.org/wiki/Interrupt_vector_table)的东西（在x86-64中叫做[中断描述符表](https://en.wikipedia.org/wiki/Interrupt_descriptor_table)），并告诉CPU。这个表把中断号和处理程序的代码地址对应起来。
 
   <img src='/images/interrupt-vector-table.png' loading='lazy' style='max-width: 300px; margin: 0 auto;' alt='A image of a table captioned "Interrupt Vector Table". The first column, labeled with a number sign, has a series of numbers starting at 01 and going to 04. The corresponding second column of the table, labeled "Handler Address", contains a random 8-byte-long hex number per entry. The bottom of the table has the text "So on and such forth..."' width='555' height='463' />
 
-2. Then, userland programs can use an instruction like [INT](https://www.felixcloutier.com/x86/intn:into:int3:int1) which tells the processor to look up the given interrupt number in the IVT, switch to kernel mode, and then jump the instruction pointer to the memory address stored in the IVT.
+2. 然后，用户程序可以使用像[INT](https://www.felixcloutier.com/x86/intn:into:int3:int1)这样的指令，告诉处理器在中断向量表中查找给定的中断号，切换到内核模式，然后把指令指针跳到表中存储的内存地址。
 
-When this kernel code finishes, it uses an instruction like [IRET](https://www.felixcloutier.com/x86/iret:iretd:iretq) to tell the CPU to switch back to user mode and return the instruction pointer to where it was when the interrupt was triggered.
+当内核代码完成后，它会使用像[IRET](https://www.felixcloutier.com/x86/iret:iretd:iretq)这样的指令告诉CPU切换回用户模式，并把指令指针返回到触发中断时的位置。
 
-(If you were curious, the interrupt ID used for system calls on Linux is `0x80`. You can read a list of Linux system calls on [Michael Kerrisk's online manpage directory](https://man7.org/linux/man-pages/man2/syscalls.2.html).)
-
-### Wrapper APIs: Abstracting Away Interrupts
-
-Here's what we know so far about system calls:
-
-- User mode programs can't access I/O or memory directly. They have to ask the OS for help interacting with the outside world.
-- Programs can delegate control to the OS with special machine code instructions like INT and IRET.
-- Programs can't directly switch privilege levels; software interrupts are safe because the processor has been preconfigured *by the OS* with where in the OS code to jump to. The interrupt vector table can only be configured from kernel mode.
-
-Programs need to pass data to the operating system when triggering a syscall; the OS needs to know which specific system call to execute alongside any data the syscall itself needs, for example, what filename to open. The mechanism for passing this data varies by operating system and architecture, but it's usually done by placing data in certain registers or on the stack before triggering the interrupt.
-
-The variance in how system calls are called across devices means it would be wildly impractical for programmers to implement system calls themselves for every program. This would also mean operating systems couldn't change their interrupt handling for fear of breaking every program that was written to use the old system. Finally, we typically don't write programs in raw assembly anymore — programmers can't be expected to drop down to assembly any time they want to read a file or allocate memory.
-
-<img src='/images/syscall-architecture-differences.png' loading='lazy' style='max-width: 650px; margin: 0 auto;' alt='A drawing captioned "System calls are implemented differently across architectures." On the left is a smiling CPU receiving some binary and spitting out a filename, file.txt. Separated on the right is a different CPU receiving the same binary data but with a confused and nauseous facial expression.' width='1057' height='360' />
-
-So, operating systems provide an abstraction layer on top of these interrupts. Reusable higher-level library functions that wrap the necessary assembly instructions are provided by [libc](https://www.gnu.org/software/libc/) on Unix-like systems and part of a library called [ntdll.dll](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/libraries-and-headers) on Windows. Calls to these library functions themselves don't cause switches to kernel mode, they're just standard function calls. Inside the libraries, assembly code does actually transfer control to the kernel, and is a lot more platform-dependent than the wrapping library subroutine.
-
-When you call `exit(1)` from C running on a Unix-like system, that function is internally running machine code to trigger an interrupt, after placing the system call's opcode and arguments in the right registers/stack/whatever. Computers are so cool!
-
-## The Need for Speed / Let's Get CISC-y
-
-Many [CISC](https://en.wikipedia.org/wiki/Complex_instruction_set_computer) architectures like x86-64 contain instructions designed for system calls, created due to the prevalence of the system call paradigm.
-
-Intel and AMD managed not to coordinate very well on x86-64; it actually has *two* sets of optimized system call instructions. [SYSCALL](https://www.felixcloutier.com/x86/syscall.html) and [SYSENTER](https://www.felixcloutier.com/x86/sysenter) are optimized alternatives to instructions like `INT 0x80`. Their corresponding return instructions, [SYSRET](https://www.felixcloutier.com/x86/sysret.html) and [SYSEXIT](https://www.felixcloutier.com/x86/sysexit), are designed to transition quickly back to user space and resume program code.
-
-(AMD and Intel processors have slightly different compatibility with these instructions. `SYSCALL` is generally the best option for 64-bit programs, while `SYSENTER` has better support with 32-bit programs.)
-
-Representative of the style, [RISC](https://en.wikipedia.org/wiki/Reduced_instruction_set_computer) architectures tend not to have such special instructions. AArch64, the RISC architecture Apple Silicon is based on, uses only [one interrupt instruction](https://developer.arm.com/documentation/ddi0596/2021-12/Base-Instructions/SVC--Supervisor-Call-) for syscalls and software interrupts alike. I think Mac users are doing fine&nbsp;:)
-
----
-
-Whew, that was a lot! Let's do a brief recap:
-
-- Processors execute instructions in an infinite fetch-execute loop and don't have any concept of operating systems or programs. The processor's mode, usually stored in a register, determines what instructions may be executed. Operating system code runs in kernel mode and switches to user mode to run programs.
-- To run a binary, the operating system switches to user mode and points the processor to the code's entry point in RAM. Because they only have the privileges of user mode, programs that want to interact with the world need to jump to OS code for help. System calls are a standardized way for programs to switch from user mode to kernel mode and into OS code.
-- Programs typically use these syscalls by calling shared library functions. These wrap machine code for either software interrupts or architecture-specific syscall instructions that transfer control to the OS kernel and switch rings. The kernel does its business and switches back to user mode and returns to the program code.
-
-Let’s figure out how to answer my first question from earlier:
-
-> If the CPU doesn't keep track of more than one process and just executes instruction after instruction, why doesn't it get stuck inside whatever program it's running? How can multiple programs run at once?
-
-The answer to this, my dear friend, is also the answer to why Coldplay is so popular... clocks! (Well, technically timers. I just wanted to shoehorn that joke in.)
+（如果你好奇，Linux上用于系统调用的中断ID是`0x80`。你可以在[Michael Kerrisk的在线手册页目录](https://man7.org/linux/man-pages/man2/syscalls.2.html)上查看Linux系统调用列表。）

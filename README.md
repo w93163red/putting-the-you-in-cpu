@@ -8,6 +8,8 @@
 <p align='center'>by <a href='https://github.com/kognise'>@kognise</a> and <a href='https://github.com/hackclub'>@hackclub</a></p>
 <br>
 
+## 已将正文进行中文翻译
+
 ## From the beginning...
 
 I've done [a lot of things with computers](https://github.com/kognise), but I've always had a gap in my knowledge: what exactly happens when you run a program on your computer? I thought about this gap — I had most of the requisite low-level knowledge, but I was struggling to piece everything together. Are programs really executing directly on the CPU, or is something else going on? I've used syscalls, but how do they *work*? What are they, really? How do multiple programs run at the same time?
